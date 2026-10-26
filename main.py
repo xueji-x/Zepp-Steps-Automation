@@ -106,6 +106,10 @@ def change_steps(account, user_id, app_token, steps):
     data0 = f"userid={user_id}&last_sync_data_time={sec_timestamp}&device_type=0&last_deviceid={deviceID}&data_json={dataJSON}"
     
     try:
+        current = datetime.now(timezone(timedelta(hours=8)))
+        if not 8 <= current.hour < 21 or current.date().isoformat() != dateToday:
+            print("信息:已离开白天时段，取消提交")
+            return False
         res0 = requests.post(url0, data=data0, headers=headers0, timeout=30)
         res0_data = res0.json()
         print(f"信息:步数={steps};HTTP={res0.status_code};成功={res0_data.get('message') == 'success'}")

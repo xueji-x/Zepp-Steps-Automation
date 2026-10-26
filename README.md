@@ -1,2 +1,48 @@
-# Zepp-Steps-Automation
-Zepp daytime incremental scheduling with bounded daily plans and GitHub Actions
+# Zepp 白天渐进更新 · GitHub Actions 版
+
+每日计划目标为 **8001–14999** 步，按北京时间 **08:00–21:00** 分散执行，每次最多补增 **180** 步。早晨、午间、傍晚活动权重较高，日期变化时重新生成不同目标和增量；相同日期与账号的计划保持一致。
+
+GitHub 托管运行，不连接个人服务器。代码不包含任何真实账号密码。
+
+## 已配置的工作流
+
+`.github/workflows/main.yml`：UTC `3-58/5 0-12 * * *`，对应北京时间 08:03–20:58，计划每五分钟唤醒。脚本以实际执行时刻判断是否仍在白天；深夜自动跳过。
+
+仓库 Secrets 仅需 `ACCOUNT` 和 `PASSWORD`，分别为 Zepp Life 的账号、密码，不能填 GitHub 或 SSH 密码。凭据只传给认证步骤，不放入缓存、代码或原始响应日志。
+
+上传成功后，仅把日期、账号散列、累计数和时段号保存到 Actions Cache；下次恢复最近的同日进度。同一工作流串行运行，防止两个任务同时读写进度。缓存不包含密码或登录令牌；公开仓库的缓存不应视为私密存储。
+
+## 启动、暂停和验证
+
+进入仓库 **Actions → Zepp daytime increments**。
+
+- 启动：工作流启用后按日程自动运行，无需保持网页、电脑或服务器在线。
+- 暂停：右上角 `… → Disable workflow`。
+- 恢复：打开工作流后点击 `Enable workflow`。
+- 查看状态：打开最新运行，检查 `Run selected mode` 和 `Save successful progress`。
+- 手动验证：`Run workflow` 可选择三种模式：
+  - `preview`：只展示当日计划，不登录、不提交。
+  - `check-login`：验证 Zepp 登录及 app token，不提交步数。
+  - `run`：在白天提交一次小增量；深夜跳过。首次最多 180 步，同一时段重复执行不会重复增加。
+- 完全停用：先 Disable workflow，再删除 `ACCOUNT`、`PASSWORD` Secrets。若还要删除项目，使用仓库 Settings 的删除仓库功能。
+
+接口成功只说明 Zepp 接受请求，请在 Zepp Life / 微信运动中确认最终同步。需要先完成 Zepp Life 与微信运动绑定。
+
+## 运行限制
+
+GitHub 定时任务可能延迟或漏跑；长时间中断、晚启动或缓存丢失时，不会一次追平，可能不足每日目标。优先保持增量限制，不能保证任何故障情况下都达到 8001 步。公开仓库长时间无活动可能暂停定时任务，请留意 GitHub 通知。
+
+每日上限仅约束本脚本，手机、手环或其他程序仍可能增加步数；不要并行运行其他步数修改任务。
+
+这是累计数值的模拟更新，不是真实传感器采集的步行记录，不保证平台认定为真实活动。原接口的分钟传感器数据未重建。请勿将模拟数据用于奖励、捐步或其他需要真实活动的场景。
+
+## 离线检查
+
+```sh
+python test_walking.py
+python main.py --preview
+```
+
+真实请求需要安装 `requirements.txt`。
+
+本版修改日期：2026-10-26。基于原 `xueji-x/Zepp-Steps-Automation` 的已下载版本（提交 `cb5ec7d0edf66ed9baa6f6346eda91bb08c65f04`）修改，保留原 AGPL-3.0 许可证。主要变化为渐进计划、成功进度持久化、白天限制、GitHub Actions 调度、超时和公开日志脱敏。

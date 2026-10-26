@@ -1,0 +1,4 @@
+zepp.env
+state/
+.venv/
+__pycache__/

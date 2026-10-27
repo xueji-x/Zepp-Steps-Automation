@@ -2,15 +2,22 @@ name: Zepp daytime increments
 
 on:
   schedule:
-    # UTC 00:02-12:57 = Beijing 08:02-20:57. Starts may be delayed/dropped.
-    - cron: '2,7,12,17,22,27,32,37,42,47,52,57 0-12 * * *'
+    # Each trigger starts a daytime session; avoid depending on every cron firing.
+    - cron: '7,37 0-12 * * *'
+  push:
+    branches: [main]
+    paths:
+      - 'walking.py'
+      - 'main.py'
+      - '.github/workflows/main.yml'
   workflow_dispatch:
     inputs:
       mode:
-        description: 'run: small increment; catch-up: finish explicitly selected day; preview/check-login: no upload'
+        description: 'watch: daytime session; run: one increment; catch-up: explicitly selected day'
         type: choice
-        default: run
+        default: watch
         options:
+          - watch
           - run
           - preview
           - check-login
@@ -30,7 +37,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
@@ -52,7 +59,7 @@ jobs:
               output.write(f'prefix=zepp-progress-v1-{day}-{account}-\n')
           PY
       - name: Restore latest successful progress
-        if: github.event_name == 'schedule' || inputs.mode == 'run' || inputs.mode == 'catch-up'
+        if: github.event_name != 'workflow_dispatch' || inputs.mode == 'watch' || inputs.mode == 'run' || inputs.mode == 'catch-up'
         uses: actions/cache/restore@v4
         with:
           path: state/progress.json
@@ -64,10 +71,11 @@ jobs:
         env:
           ACCOUNT: ${{ secrets.ACCOUNT }}
           PASSWORD: ${{ secrets.PASSWORD }}
-          MODE: ${{ inputs.mode || 'run' }}
+          MODE: ${{ inputs.mode || 'watch' }}
           CATCH_UP_DATE: ${{ inputs.catch_up_date }}
         run: |
           case "$MODE" in
+            watch) python -u main.py --watch ;;
             run) python main.py ;;
             preview) python main.py --preview ;;
             check-login) python main.py --check-login ;;
@@ -75,7 +83,7 @@ jobs:
             *) exit 1 ;;
           esac
       - name: Save successful progress
-        if: success() && (github.event_name == 'schedule' || inputs.mode == 'run' || inputs.mode == 'catch-up') && hashFiles('state/progress.json') != ''
+        if: always() && (github.event_name != 'workflow_dispatch' || inputs.mode == 'watch' || inputs.mode == 'run' || inputs.mode == 'catch-up') && hashFiles('state/progress.json') != ''
         uses: actions/cache/save@v4
         with:
           path: state/progress.json

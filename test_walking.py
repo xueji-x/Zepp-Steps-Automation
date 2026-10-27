@@ -15,6 +15,11 @@ for day in range(1000):
             assert steps == previous
         previous, last_slot = steps, slot
     assert previous == sum(plan)
+    # Reproduce today's late first trigger; continuous half-hour ticks still finish.
+    previous, last_slot = 0, -1
+    for minute in range(12 * 60 + 49, 21 * 60):
+        previous, last_slot = due_steps(plan, minute, previous, last_slot)
+    assert previous == sum(plan)
 
 plan = daily_plan("2026-10-26", "test-account")
 assert due_steps(plan, 1255, 0, -1)[0] <= MAX_INCREMENT  # late start: no catch-up jump
@@ -50,7 +55,7 @@ with tempfile.TemporaryDirectory() as directory:
         first = state_file.read_text()
         walking.run_tick()
         assert len(uploads) == 1 and state_file.read_text() == first
-        Clock.value = Clock.value.replace(minute=5)
+        Clock.value = Clock.value.replace(minute=30)
         api.change_steps = lambda *args: False
         try:
             walking.run_tick()
@@ -86,4 +91,31 @@ with tempfile.TemporaryDirectory() as directory:
         Clock.value = Clock.value.replace(day=28, hour=8, minute=0)
         walking.run_tick()
         assert len(uploads) == count + 1 and 0 < uploads[-1] <= MAX_INCREMENT
-print("PASS: 1000 daily plans; bounded progression; night/repeat skip; failed-upload retry; restart and day rollover")
+
+# Exercise the long-running session without actually waiting or making requests.
+def fake_sleep(seconds):
+    elapsed[0] += seconds
+    Clock.value += walking.timedelta(seconds=seconds)
+
+with patch.dict("os.environ", {"ACCOUNT": "test-account", "PASSWORD": "test-password"}), \
+     patch.object(walking, "datetime", Clock), \
+     patch.object(walking.time, "monotonic", side_effect=lambda: elapsed[0]), \
+     patch.object(walking.time, "sleep", side_effect=fake_sleep):
+    elapsed = [0]
+    Clock.value = datetime(2026, 10, 28, 8, 7, tzinfo=walking.TZ)
+    with patch.object(walking, "run_tick", side_effect=[False, False, True]) as tick:
+        walking.run_watch()
+        assert tick.call_count == 3 and elapsed[0] == 53 * 60
+    elapsed[0] = 0
+    Clock.value = Clock.value.replace(hour=8, minute=0)
+    with patch.object(walking, "run_tick", return_value=False) as tick:
+        walking.run_watch()
+        assert elapsed[0] == walking.SESSION_SECONDS and tick.call_count == 11
+    elapsed[0] = 0
+    Clock.value = Clock.value.replace(hour=20, minute=40)
+    with patch.object(walking, "run_tick", return_value=False) as tick:
+        walking.run_watch()
+        assert tick.call_count == 1 and Clock.value.hour == 21
+        walking.run_watch()
+        assert tick.call_count == 1
+print("PASS: 1000 half-hour plans; upload bounds; persisted retries and rollover; dated catch-up; session timing and night shutdown")

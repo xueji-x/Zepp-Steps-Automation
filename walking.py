@@ -6,10 +6,13 @@ import json
 import os
 from pathlib import Path
 import random
+import time
 
 TZ = timezone(timedelta(hours=8))
-SLOTS = 156  # 08:00 through 20:55, every five minutes
-MAX_INCREMENT = 180
+INTERVAL_MINUTES = 30
+SLOTS = 26  # 08:00 through 20:30
+MAX_INCREMENT = 1000
+SESSION_SECONDS = 330 * 60  # Leave headroom below GitHub's six-hour job limit.
 
 
 def daily_plan(day, account):
@@ -18,7 +21,7 @@ def daily_plan(day, account):
     target = rng.randint(8001, 14999)
     weights = []
     for slot in range(SLOTS):
-        hour = 8 + slot / 12
+        hour = 8 + slot / 2
         # Morning, lunch and evening carry more activity, with quiet intervals.
         busy = 1.25 if hour < 10 or 12 <= hour < 14 or 17 <= hour < 20 else 0.7
         weights.append(busy * rng.uniform(0.25, 1.5))
@@ -34,7 +37,7 @@ def daily_plan(day, account):
 def due_steps(plan, minute, previous, last_slot):
     if not 8 * 60 <= minute < 21 * 60:
         return previous, last_slot
-    slot = (minute - 8 * 60) // 5
+    slot = (minute - 8 * 60) // INTERVAL_MINUTES
     if slot <= last_slot:
         return previous, last_slot
     return min(sum(plan[:slot + 1]), previous + MAX_INCREMENT), slot
@@ -67,7 +70,7 @@ def run_tick(now=None, catch_up_date=None):
         steps, slot = due_steps(plan, minute, state["steps"], state["slot"])
     if steps <= state["steps"]:
         print("No new increment; skipped.")
-        return
+        return state["steps"] >= sum(plan)
     from main import login, get_app_token, change_steps
     login_token, user_id = login(account, password)
     if not login_token:
@@ -87,13 +90,42 @@ def run_tick(now=None, catch_up_date=None):
     temporary.write_text(json.dumps(state), encoding="utf-8")
     temporary.replace(path)
     print(f"Saved progress: {day}, {steps} steps.")
+    return steps >= sum(plan)
+
+
+def run_watch():
+    start = datetime.now(TZ)
+    if not 8 <= start.hour < 21:
+        print("Outside 08:00-21:00 UTC+8; skipped.")
+        return
+    if not os.environ.get("ACCOUNT") or not os.environ.get("PASSWORD"):
+        raise RuntimeError("Missing Zepp credentials.")
+    deadline = time.monotonic() + SESSION_SECONDS
+    print("Daytime session started; 30-minute slots, at most 330 minutes.")
+    while time.monotonic() < deadline:
+        now = datetime.now(TZ)
+        if now.date() != start.date() or not 8 <= now.hour < 21:
+            break
+        if run_tick():
+            print("Daily target already completed; session finished.")
+            return
+        now = datetime.now(TZ)
+        next_minute = ((now.hour * 60 + now.minute) // INTERVAL_MINUTES + 1) * INTERVAL_MINUTES
+        next_tick = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(minutes=next_minute)
+        delay = min((next_tick - now).total_seconds(), deadline - time.monotonic())
+        if delay > 0:
+            print(f"Waiting {int(delay)} seconds for the next daytime slot.")
+            time.sleep(delay)
+    print("Daytime session finished; persist progress for the next run.")
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--preview", action="store_true", help="Print today's plan without network access")
-    parser.add_argument("--check-login", action="store_true", help="Verify Zepp credentials without uploading steps")
-    parser.add_argument("--catch-up-date", help="Explicitly finish this UTC+8 day's plan in one upload (YYYY-MM-DD)")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--preview", action="store_true", help="Print today's plan without network access")
+    modes.add_argument("--check-login", action="store_true", help="Verify Zepp credentials without uploading steps")
+    modes.add_argument("--catch-up-date", help="Explicitly finish this UTC+8 day's plan in one upload (YYYY-MM-DD)")
+    modes.add_argument("--watch", action="store_true", help="Keep checking half-hour slots for up to 330 minutes")
     args = parser.parse_args()
     if args.preview:
         now = datetime.now(TZ)
@@ -112,6 +144,8 @@ def main():
                 if not token or not get_app_token(token):
                     raise RuntimeError("Zepp credential check failed.")
                 print("Zepp credential check succeeded; no steps uploaded.")
+            elif args.watch:
+                run_watch()
             else:
                 run_tick(catch_up_date=args.catch_up_date)
         except requests.RequestException as error:

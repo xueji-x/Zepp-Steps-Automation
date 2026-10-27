@@ -1,0 +1,65 @@
+name: One-time catch-up 2026-10-27
+on:
+  push:
+    paths:
+      - '.github/workflows/catch-up-2026-10-27.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zepp-daytime-progress
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Validate schedule offline
+        run: python test_walking.py
+      - name: Identify daily progress cache
+        id: state
+        env:
+          ACCOUNT: ${{ secrets.ACCOUNT }}
+        run: |
+          python - <<'PY'
+          from datetime import datetime, timedelta, timezone
+          import hashlib, os
+          day = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
+          account = hashlib.sha256(os.environ['ACCOUNT'].encode()).hexdigest()[:16]
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'prefix=zepp-progress-v1-{day}-{account}-\n')
+          PY
+      - name: Restore latest successful progress
+        uses: actions/cache/restore@v4
+        with:
+          path: state/progress.json
+          key: ${{ steps.state.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: ${{ steps.state.outputs.prefix }}
+      - name: Install dependency
+        run: python -m pip install -r requirements.txt
+      - name: Run selected mode
+        env:
+          ACCOUNT: ${{ secrets.ACCOUNT }}
+          PASSWORD: ${{ secrets.PASSWORD }}
+          MODE: catch-up
+          CATCH_UP_DATE: '2026-10-27'
+        run: |
+          case "$MODE" in
+            run) python main.py ;;
+            preview) python main.py --preview ;;
+            check-login) python main.py --check-login ;;
+            catch-up) python main.py --catch-up-date "$CATCH_UP_DATE" ;;
+            *) exit 1 ;;
+          esac
+      - name: Save successful progress
+        if: success() && hashFiles('state/progress.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: state/progress.json
+          key: ${{ steps.state.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}

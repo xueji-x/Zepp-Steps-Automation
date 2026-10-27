@@ -69,4 +69,21 @@ with tempfile.TemporaryDirectory() as directory:
         walking.run_tick()
         assert len(uploads) == 3
         assert "test-password" not in state_file.read_text()
+        Clock.value = Clock.value.replace(hour=19, minute=25)
+        walking.run_tick(catch_up_date="2026-10-27")
+        target = sum(walking.daily_plan("2026-10-27", "test-account"))
+        assert uploads[-1] == target and 8000 < target < 15000
+        assert json.loads(state_file.read_text())["slot"] == walking.SLOTS - 1
+        count = len(uploads)
+        walking.run_tick(catch_up_date="2026-10-27")
+        walking.run_tick()
+        assert len(uploads) == count
+        try:
+            walking.run_tick(catch_up_date="2026-10-26")
+            raise AssertionError("Wrong-date catch-up was accepted")
+        except ValueError:
+            pass
+        Clock.value = Clock.value.replace(day=28, hour=8, minute=0)
+        walking.run_tick()
+        assert len(uploads) == count + 1 and 0 < uploads[-1] <= MAX_INCREMENT
 print("PASS: 1000 daily plans; bounded progression; night/repeat skip; failed-upload retry; restart and day rollover")

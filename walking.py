@@ -40,8 +40,10 @@ def due_steps(plan, minute, previous, last_slot):
     return min(sum(plan[:slot + 1]), previous + MAX_INCREMENT), slot
 
 
-def run_tick(now=None):
+def run_tick(now=None, catch_up_date=None):
     now = now or datetime.now(TZ)
+    if catch_up_date is not None and catch_up_date != now.date().isoformat():
+        raise ValueError("Catch-up date must match today's date in UTC+8.")
     minute = now.hour * 60 + now.minute
     if not 8 * 60 <= minute < 21 * 60:
         print("Outside 08:00-21:00 UTC+8; skipped.")
@@ -57,7 +59,12 @@ def run_tick(now=None):
     state = json.loads(path.read_text()) if path.exists() else {}
     if state.get("day") != day or state.get("account") != key:
         state = {"day": day, "account": key, "steps": 0, "slot": -1}
-    steps, slot = due_steps(daily_plan(day, account), minute, state["steps"], state["slot"])
+    plan = daily_plan(day, account)
+    if catch_up_date is not None:
+        steps, slot = max(state["steps"], sum(plan)), SLOTS - 1
+        print(f"Explicit catch-up for {day}: target={steps}.")
+    else:
+        steps, slot = due_steps(plan, minute, state["steps"], state["slot"])
     if steps <= state["steps"]:
         print("No new increment; skipped.")
         return
@@ -86,6 +93,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--preview", action="store_true", help="Print today's plan without network access")
     parser.add_argument("--check-login", action="store_true", help="Verify Zepp credentials without uploading steps")
+    parser.add_argument("--catch-up-date", help="Explicitly finish this UTC+8 day's plan in one upload (YYYY-MM-DD)")
     args = parser.parse_args()
     if args.preview:
         now = datetime.now(TZ)
@@ -105,7 +113,7 @@ def main():
                     raise RuntimeError("Zepp credential check failed.")
                 print("Zepp credential check succeeded; no steps uploaded.")
             else:
-                run_tick()
+                run_tick(catch_up_date=args.catch_up_date)
         except requests.RequestException as error:
             # Exception URLs can contain tokens or account identifiers.
             print(f"Zepp request failed: {type(error).__name__}")

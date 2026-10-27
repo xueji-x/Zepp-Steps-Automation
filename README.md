@@ -6,7 +6,7 @@ GitHub 托管运行，不连接个人服务器。代码不包含任何真实账�
 
 ## 已配置的工作流
 
-`.github/workflows/main.yml`：UTC `3-58/5 0-12 * * *`，对应北京时间 08:03–20:58，计划每五分钟唤醒。脚本以实际执行时刻判断是否仍在白天；深夜自动跳过。
+`.github/workflows/main.yml`：UTC `2,7,12,17,22,27,32,37,42,47,52,57 0-12 * * *`，对应北京时间 08:02–20:57，计划每五分钟唤醒。脚本以实际执行时刻判断是否仍在白天；深夜自动跳过。
 
 仓库 Secrets 仅需 `ACCOUNT` 和 `PASSWORD`，分别为 Zepp Life 的账号、密码，不能填 GitHub 或 SSH 密码。凭据只传给认证步骤，不放入缓存、代码或原始响应日志。
 
@@ -20,9 +20,10 @@ GitHub 托管运行，不连接个人服务器。代码不包含任何真实账�
 - 暂停：右上角 `… → Disable workflow`。
 - 恢复：打开工作流后点击 `Enable workflow`。
 - 查看状态：打开最新运行，检查 `Run selected mode` 和 `Save successful progress`。
-- 手动验证：`Run workflow` 可选择三种模式：
+- 手动验证：`Run workflow` 可选择四种模式：
   - `preview`：只展示当日计划，不登录、不提交。
   - `check-login`：验证 Zepp 登录及 app token，不提交步数。
+  - `catch-up`：仅手动授权的特殊情况使用；填写北京时间当天的 `catch_up_date`（YYYY-MM-DD），一次性提交当日完整目标并保存进度。日期不符则拒绝；同日后续普通运行不再增加。定时任务永远不会自动进入此模式。
   - `run`：在白天提交一次小增量；深夜跳过。首次最多 180 步，同一时段重复执行不会重复增加。
 - 完全停用：先 Disable workflow，再删除 `ACCOUNT`、`PASSWORD` Secrets。若还要删除项目，使用仓库 Settings 的删除仓库功能。
 
@@ -46,3 +47,5 @@ python main.py --preview
 真实请求需要安装 `requirements.txt`。
 
 本版修改日期：2026-10-26。基于原 `xueji-x/Zepp-Steps-Automation` 的已下载版本（提交 `cb5ec7d0edf66ed9baa6f6346eda91bb08c65f04`）修改，保留原 AGPL-3.0 许可证。主要变化为渐进计划、成功进度持久化、白天限制、GitHub Actions 调度、超时和公开日志脱敏。
+
+2026-10-27 排查记录：当天截至北京时间 19:26 仅产生 12:49、18:05 两次 schedule 运行，接口分别接受累计 180、360 步；不是脚本报错，而是定时触发严重不足。重新提交定时表达式以更新调度注册，无法据此保证后续 GitHub 调度正常。增加明确日期的手动补足模式，普通定时任务仍遵守 180 步限制。
